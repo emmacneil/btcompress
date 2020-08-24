@@ -30,3 +30,7 @@
 *.exe
 *.out
 *.app
+btcompress
+
+# Large data files (blockchain .dat files are too large too upload to GitHub)
+*.dat
