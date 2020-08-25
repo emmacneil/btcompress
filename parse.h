@@ -47,6 +47,8 @@ Block *parseBlock(std::ifstream &fin)
   fin.read((char*)&block->time, sizeof(uint32_t));
   fin.read((char*)&block->bits, sizeof(uint32_t));
   fin.read((char*)&block->nonce, sizeof(uint32_t));
+  block->computeHash();
+  
   block->transactionCount = readVarInt(fin);
   block->transactions.resize(block->transactionCount);
 
