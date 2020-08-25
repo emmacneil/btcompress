@@ -13,6 +13,7 @@ Block *parseBlock(std::ifstream &fin);
 Input *parseInput(std::ifstream &fin);
 Output *parseOutput(std::ifstream &fin);
 Transaction *parseTransaction(std::ifstream &fin);
+void readHash(std::ifstream &fin, char *buffer, int nBytes);
 uint64_t readVarInt(std::ifstream &fin);
 
 Block *parseBlock(std::ifstream &fin)
@@ -39,8 +40,10 @@ Block *parseBlock(std::ifstream &fin)
   Block *block = new Block;
   fin.read((char*)&block->size, sizeof(uint32_t));
   fin.read((char*)&block->version, sizeof(uint32_t));
-  fin.read((char*)&block->hashPrevBlock, 32);
-  fin.read((char*)&block->hashMerkleRoot, 32);
+  //fin.read((char*)&block->hashPrevBlock, 32);
+  //fin.read((char*)&block->hashMerkleRoot, 32);
+  readHash(fin, (char*)&block->hashPrevBlock, 32);
+  readHash(fin, (char*)&block->hashMerkleRoot, 32);
   fin.read((char*)&block->time, sizeof(uint32_t));
   fin.read((char*)&block->bits, sizeof(uint32_t));
   fin.read((char*)&block->nonce, sizeof(uint32_t));
@@ -75,7 +78,7 @@ Input *parseInput(std::ifstream &fin)
     std::cout << "Could not allocate memory for input. Aborting." << std::endl;
     return 0;
   }
-  fin.read((char*)&input->prevTransactionHash, 32);
+  readHash(fin, (char*)&input->prevTransactionHash, 32);
   fin.read((char*)&input->prevTransactionIndex, sizeof(uint32_t));
   input->scriptLength = readVarInt(fin);
   input->script = new uint8_t[input->scriptLength];
@@ -177,6 +180,14 @@ Transaction *parseTransaction(std::ifstream &fin)
   fin.read((char*)&transaction->lockTime, sizeof(uint32_t));
 
   return transaction;
+}
+
+void readHash(std::ifstream &fin, char *buffer, int nBytes)
+{
+  // fin.read(buffer, 32);
+  char *ptr = buffer + nBytes;
+  while (ptr > buffer)
+    fin.read(--ptr, 1);
 }
 
 uint64_t readVarInt(std::ifstream &fin)

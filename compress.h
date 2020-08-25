@@ -37,6 +37,7 @@ void compress(const char *inputFile, const char *outputFile)
     // Do stuff with block.
     printBlockHeader(block);
     std::cout << std::endl;
+
     // When we're done with the block, free up memory.
     delete block;
   }
