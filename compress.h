@@ -15,6 +15,7 @@
 void compress(const char *inputFile, const char *outputFile);
 std::vector<std::pair<uint32_t, std::streampos>> preprocessDatFile(std::ifstream &fin);
 void writeCompressedBlock(std::ofstream &fout, Block *block);
+void writeCompressedBlockHeader(std::ofstream &fout, Block *block);
 void writeCompressedTransaction(std::ofstream &fout, Transaction *transaction);
 void writeCompressedTransactionFlag(std::ofstream &fout, bool flag);
 void writeCompressedTransactionInput(std::ofstream &fout, Input *input);
@@ -24,6 +25,7 @@ void writeCompressedTransactionOutput(std::ofstream &fout, Output *output);
 void writeCompressedTransactionOutputCount(std::ofstream &fout, uint64_t outputCount);
 void writeCompressedTransactionVersion(std::ofstream &fout, uint32_t version);
 void writeCompressedTransactionWitnessData(std::ofstream &fout, std::vector<Witness*> &witnesses);
+void writeVarInt(std::ofstream &fout, uint64_t val);
 
 void compress(const char *inputFile, const char *outputFile)
 {
@@ -63,6 +65,7 @@ void compress(const char *inputFile, const char *outputFile)
 
     // Do stuff with block.
     printBlockHeader(block);
+    writeCompressedBlock(fout, block);
     std::cout << std::endl;
 
     // When we're done with the block, free up memory.
@@ -121,6 +124,16 @@ std::vector<std::pair<uint32_t, std::streampos>> preprocessDatFile(std::ifstream
 void writeCompressedBlock(std::ofstream &fout, Block *block)
 {
   // Write block header
+  uint32_t magicNumber = Block::MAGIC_NUMBER;
+  fout.write((char*)&magicNumber, sizeof(uint32_t));
+
+  // We would write the size of the compressed block next, but we don't know how big it is yet.
+  // Skip the next 4 bytes for now and come back later.
+  fout.seekp(4, std::ios_base::cur);
+
+  writeCompressedBlockHeader(fout, block);
+
+  writeVarInt(fout, block->transactionCount);
 
   for (Transaction * transaction : block->transactions)
   {
@@ -129,52 +142,94 @@ void writeCompressedBlock(std::ofstream &fout, Block *block)
   }
 }
 
+void writeCompressedBlockHeader(std::ofstream &fout, Block *block)
+{
+  // The block header consists of the version number, previous block hash, merkle root, timestamp, 'bits', and nonce.
+  fout.write((char*)&block->version, sizeof(uint32_t));
+
+  for (int i = 0; i < 32; i++)
+    fout.write((char*)&block->hashPrevBlock[31-i], 1);
+  for (int i = 0; i < 32; i++)
+    fout.write((char*)&block->hashMerkleRoot[31-i], 1);
+
+  fout.write((char*)&block->time, sizeof(uint32_t));
+  fout.write((char*)&block->bits, sizeof(uint32_t));
+  fout.write((char*)&block->nonce, sizeof(uint32_t));
+}
+
 void writeCompressedTransaction(std::ofstream &fout, Transaction *transaction)
 {
   writeCompressedTransactionVersion(fout, transaction->version);
   writeCompressedTransactionFlag(fout, transaction->flag);
+
   writeCompressedTransactionInputCount(fout, transaction->inputCount);
   for (Input *input : transaction->inputs)
     writeCompressedTransactionInput(fout, input);
+
   writeCompressedTransactionOutputCount(fout, transaction->outputCount);
   for (Output *output : transaction->outputs)
     writeCompressedTransactionOutput(fout, output);
-  for (Input *input : transaction->inputs)
-    writeCompressedTransactionWitnessData(fout, input->witnesses);
+
+  if (transaction->flag)
+    for (Input *input : transaction->inputs)
+      writeCompressedTransactionWitnessData(fout, input->witnesses);
+
   writeCompressedTransactionLockTime(fout, transaction->lockTime);
 }
 
 void writeCompressedTransactionFlag(std::ofstream &fout, bool flag)
 {
-
+  if (flag)
+  {
+    uint16_t f = 0x0001;
+    fout.write((char*)&f, sizeof(uint16_t));
+  }
 }
 
 void writeCompressedTransactionInput(std::ofstream &fout, Input *input)
 {
   // Compress and write previous transaction hash
+  for (int i = 0; i < 32; i++)
+    fout.write((char*)&input->prevTransactionHash[31-i], 1);
+
   // Compress and write previous transaction index
+  fout.write((char*)&input->prevTransactionIndex, sizeof(uint32_t));
+
   // Compress and write script length + script
+  writeVarInt(fout, input->scriptLength);
+  for (int i = 0; i < input->scriptLength; i++)
+    fout.write((char*)&input->script[i], 1);
+
   // Compress and write sequence number
+  fout.write((char*)&input->sequenceNumber, sizeof(uint32_t));
 }
 
 void writeCompressedTransactionInputCount(std::ofstream &fout, uint64_t inputCount)
 {
   // This was originally stored as a varint, which is probably good enough for us
+  writeVarInt(fout, inputCount);
 }
 
 void writeCompressedTransactionLockTime(std::ofstream &fout, uint32_t lockTime)
 {
+  fout.write((char*)&lockTime, sizeof(uint32_t));
 }
 
 void writeCompressedTransactionOutput(std::ofstream &fout, Output *output)
 {
   // Compress and write value (number of Satoshis/BTC to be sent)
+  fout.write((char*)&output->value, sizeof(uint64_t));
+
   // Compress and write script length + script.
+  writeVarInt(fout, output->scriptLength);
+  for (int i = 0; i < output->scriptLength; i++)
+    fout.write((char*)&output->script[i], 1);
 }
 
 void writeCompressedTransactionOutputCount(std::ofstream &fout, uint64_t outputCount)
 {
   // This was originally stored as a varint, which is probably good enough for us
+  writeVarInt(fout, outputCount);
 }
 
 void writeCompressedTransactionVersion(std::ofstream &fout, uint32_t version)
@@ -182,11 +237,47 @@ void writeCompressedTransactionVersion(std::ofstream &fout, uint32_t version)
   // Originally stored as a 32-bit integer.
   // A single byte is probably enough.
   // This could even be combined with the transaction flag.
+  fout.write((char*)&version, sizeof(uint32_t));
 }
 
 void writeCompressedTransactionWitnessData(std::ofstream &fout, std::vector<Witness*> &witnesses)
 {
+  writeVarInt(fout, witnesses.size());
+  for (Witness *w : witnesses)
+  {
+    writeVarInt(fout, w->size);
+    for (uint8_t byte : w->data)
+      fout.write((char*)&byte, 1);
+  }
+}
 
+void writeVarInt(std::ofstream &fout, uint64_t val)
+{
+  if (val < 0xfd)
+  {
+    uint8_t tmp = val & 0xff;
+    fout.write((char*)&tmp, sizeof(uint8_t));
+  }
+  else if (val < 0x10000)
+  {
+    uint8_t byte = 0xfd;
+    uint16_t tmp = val & 0xffff;
+    fout.write((char*)&byte, sizeof(uint8_t));
+    fout.write((char*)&tmp, sizeof(uint16_t));
+  }
+  else if (val < 0x100000000)
+  {
+    uint8_t byte = 0xfe;
+    uint32_t tmp = val & 0xffffffff;
+    fout.write((char*)&byte, sizeof(uint8_t));
+    fout.write((char*)&tmp, sizeof(uint32_t));
+  }
+  else
+  {
+    uint8_t byte = 0xff;
+    fout.write((char*)&byte, sizeof(uint8_t));
+    fout.write((char*)&val, sizeof(uint64_t));
+  }
 }
 
 #endif
