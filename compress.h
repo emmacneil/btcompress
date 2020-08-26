@@ -65,8 +65,9 @@ void compress(const char *inputFile, const char *outputFile)
 
     // Do stuff with block.
     printBlockHeader(block);
-    writeCompressedBlock(fout, block);
     std::cout << std::endl;
+
+    writeCompressedBlock(fout, block);
 
     // When we're done with the block, free up memory.
     delete block;
@@ -123,12 +124,16 @@ std::vector<std::pair<uint32_t, std::streampos>> preprocessDatFile(std::ifstream
 
 void writeCompressedBlock(std::ofstream &fout, Block *block)
 {
+  std::streampos sizePos, endPos;
+  uint32_t compressedBlockSize;
+
   // Write block header
   uint32_t magicNumber = Block::MAGIC_NUMBER;
   fout.write((char*)&magicNumber, sizeof(uint32_t));
 
   // We would write the size of the compressed block next, but we don't know how big it is yet.
   // Skip the next 4 bytes for now and come back later.
+  sizePos = fout.tellp();
   fout.seekp(4, std::ios_base::cur);
 
   writeCompressedBlockHeader(fout, block);
@@ -140,6 +145,12 @@ void writeCompressedBlock(std::ofstream &fout, Block *block)
     // Write compressed transaction
     writeCompressedTransaction(fout, transaction);
   }
+  endPos = fout.tellp();
+  compressedBlockSize = (uint32_t)(endPos - sizePos) - 4;
+  // std::cout << "compressed block size = " << compressedBlockSize << std::endl;
+  fout.seekp(sizePos, std::ios_base::beg);
+  fout.write((char*)&compressedBlockSize, sizeof(uint32_t));
+  fout.seekp(endPos, std::ios_base::beg);
 }
 
 void writeCompressedBlockHeader(std::ofstream &fout, Block *block)
@@ -181,8 +192,10 @@ void writeCompressedTransactionFlag(std::ofstream &fout, bool flag)
 {
   if (flag)
   {
-    uint16_t f = 0x0001;
-    fout.write((char*)&f, sizeof(uint16_t));
+    uint8_t tmp = 0x00;
+    fout.write((char*)&tmp, sizeof(uint8_t));
+    tmp = 0x01;
+    fout.write((char*)&tmp, sizeof(uint8_t));
   }
 }
 
