@@ -28,7 +28,6 @@ Block *parseBlock(std::ifstream &fin)
   // Make sure it is pointing to a block (check magic number)
   uint32_t magicNumber;
   fin.read((char*)&magicNumber, sizeof(uint32_t));
-
   if (magicNumber != Block::MAGIC_NUMBER)
   {
     std::cout << "Filestream is not pointing to a valid block" << std::endl;
@@ -48,7 +47,7 @@ Block *parseBlock(std::ifstream &fin)
   fin.read((char*)&block->bits, sizeof(uint32_t));
   fin.read((char*)&block->nonce, sizeof(uint32_t));
   block->computeHash();
-  
+
   block->transactionCount = readVarInt(fin);
   block->transactions.resize(block->transactionCount);
 

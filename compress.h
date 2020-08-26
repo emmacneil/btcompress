@@ -6,11 +6,14 @@
 #include "block.h"
 #include "parse.h"
 
+#include <algorithm>
 #include <fstream>
 #include <iostream>
 #include <stdint.h>
+#include <utility>
 
 void compress(const char *inputFile, const char *outputFile);
+std::vector<std::pair<uint32_t, std::streampos>> preprocessDatFile(std::ifstream &fin);
 void writeCompressedBlock(std::ofstream &fout, Block *block);
 void writeCompressedTransaction(std::ofstream &fout, Transaction *transaction);
 void writeCompressedTransactionFlag(std::ofstream &fout, bool flag);
@@ -40,9 +43,16 @@ void compress(const char *inputFile, const char *outputFile)
     std::cout << "Could not open file \'" << outputFile << "\'" << std::endl << std::endl;
   }
 
+  // Preprocess the file
+  // Build a list of (timestamp, index pairs) and sort them
+  auto orderedBlocks = preprocessDatFile(fin);
+
   // While file is still open, read a block and compress it.
-  while (fin.good())
+  for (auto pr : orderedBlocks)
+  //while (fin.good())
   {
+    fin.seekg(pr.second, std::ios_base::beg);
+
     Block *block = parseBlock(fin);
 
     if (!block)
@@ -58,6 +68,54 @@ void compress(const char *inputFile, const char *outputFile)
     // When we're done with the block, free up memory.
     delete block;
   }
+}
+
+std::vector<std::pair<uint32_t, std::streampos>> preprocessDatFile(std::ifstream &fin)
+{
+  std::vector<std::pair<uint32_t, std::streampos>> ret;
+  std::streampos startPos = fin.tellg();
+  fin.seekg(0, std::ios_base::end);
+  std::streampos endPos = fin.tellg();
+  fin.seekg(startPos, std::ios_base::beg);
+
+  while (fin.tellg() < endPos)
+  {
+    std::pair<uint32_t, std::streampos> pr(0, fin.tellg());
+    uint32_t magicNumber, blockSize, timestamp;
+
+    // Make sure we are pointing to the beginning of a block
+    fin.read((char*)&magicNumber, sizeof(uint32_t));
+
+    if (magicNumber != Block::MAGIC_NUMBER)
+    {
+      std::cout << "Filestream is not pointing to a valid block" << std::endl;
+      if (magicNumber == Block::MAGIC_NUMBER_REVERSE)
+        std::cout << "This is likely a endianness issue" << std::endl;
+      return {};
+    }
+
+    // Read in the size of the block
+    fin.read((char*)&blockSize, sizeof(uint32_t));
+
+    // Skip 68 bytes, read time stamp, then skip to next block
+    fin.seekg(68, std::ios_base::cur);
+    fin.read((char*)&pr.first, sizeof(uint32_t));
+    fin.seekg(blockSize-72, std::ios_base::cur);
+
+    ret.push_back(pr);
+  }
+
+  // Sort the list of pairs
+  std::sort(ret.begin(), ret.end());
+
+  // Test output
+  //for (auto p : ret)
+  //  std::cout << p.first << "   " << p.second << std::endl;
+
+  // Reset ifstream
+  fin.seekg(startPos, std::ios_base::beg);
+
+  return ret;
 }
 
 void writeCompressedBlock(std::ofstream &fout, Block *block)
