@@ -226,7 +226,7 @@ Block *parseCompressedBlock(std::ifstream &fin)
 
   for (int i = 0; i < block->transactionCount; i++)
   {
-    block->transactions[i] = parseTransaction(fin);
+    block->transactions[i] = parseCompressedTransaction(fin);
     if (!block->transactions[i])
     {
       std::cout << "Failed to parse transaction. Aborting." << std::endl;
@@ -271,7 +271,8 @@ Output *parseCompressedOutput(std::ifstream &fin)
   }
 
   Output *output = new Output;
-  fin.read((char*)&output->value, sizeof(uint64_t));
+  //fin.read((char*)&output->value, sizeof(uint64_t));
+  output->value = readVarInt(fin);
   output->scriptLength = readVarInt(fin);
   output->script = new uint8_t[output->scriptLength];
   fin.read((char*)output->script, output->scriptLength);
@@ -289,7 +290,14 @@ Transaction *parseCompressedTransaction(std::ifstream &fin)
   }
 
   Transaction *transaction = new Transaction;
-  fin.read((char*)&transaction->version, sizeof(uint32_t));
+  /*
+  uint8_t version;
+  fin.read((char*)&version, sizeof(uint8_t));
+  transaction->version = version;
+  */
+  uint8_t version = 0;
+  fin.read((char*)&version, sizeof(uint8_t));
+  transaction->version = version;
 
   // Check if the flag is present.
   transaction->flag = false;
@@ -303,7 +311,7 @@ Transaction *parseCompressedTransaction(std::ifstream &fin)
   transaction->inputs.resize(transaction->inputCount);
   for (uint64_t i = 0; i < transaction->inputCount; i++)
   {
-    transaction->inputs[i] = parseInput(fin);
+    transaction->inputs[i] = parseCompressedInput(fin);
     if (!transaction->inputs[i])
     {
       std::cout << "Failed to parse input. Aborting." << std::endl;
@@ -315,7 +323,7 @@ Transaction *parseCompressedTransaction(std::ifstream &fin)
   transaction->outputs.resize(transaction->outputCount);
   for (uint64_t i = 0; i < transaction->outputCount; i++)
   {
-    transaction->outputs[i] = parseOutput(fin);
+    transaction->outputs[i] = parseCompressedOutput(fin);
     if (!transaction->outputs[i])
     {
       std::cout << "Failed to parse output. Aborting." << std::endl;

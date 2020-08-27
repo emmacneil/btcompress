@@ -257,7 +257,8 @@ void writeCompressedTransactionLockTime(std::ofstream &fout, uint32_t lockTime)
 void writeCompressedTransactionOutput(std::ofstream &fout, Output *output)
 {
   // Compress and write value (number of Satoshis/BTC to be sent)
-  fout.write((char*)&output->value, sizeof(uint64_t));
+  //fout.write((char*)&output->value, sizeof(uint64_t));
+  writeVarInt(fout, output->value);
 
   // Compress and write script length + script.
   writeVarInt(fout, output->scriptLength);
@@ -275,8 +276,10 @@ void writeCompressedTransactionVersion(std::ofstream &fout, uint32_t version)
 {
   // Originally stored as a 32-bit integer.
   // A single byte is probably enough.
+  uint8_t cVersion = (uint8_t)version;
+  fout.write((char*)&cVersion, sizeof(uint8_t));
+
   // This could even be combined with the transaction flag.
-  fout.write((char*)&version, sizeof(uint32_t));
 }
 
 void writeCompressedTransactionWitnessData(std::ofstream &fout, std::vector<Witness*> &witnesses)
