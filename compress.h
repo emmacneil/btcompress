@@ -12,8 +12,18 @@
 #include <stdint.h>
 #include <utility>
 
+struct BlockOrderData
+{
+  BlockOrderData(uint32_t t, uint32_t i, std::streampos o) : time(t), index(i), offset(o) {}
+  bool operator< (const BlockOrderData &other) const { return time < other.time; }
+
+  uint32_t time, index;
+  std::streampos offset;
+};
+
 void compress(const char *inputFile, const char *outputFile);
-std::vector<std::pair<uint32_t, std::streampos>> preprocessDatFile(std::ifstream &fin);
+std::vector<BlockOrderData> preprocessDatFile(std::ifstream &fin);
+void writeBlockOrderData(std::ofstream &fout, std::vector<BlockOrderData> &vec);
 void writeCompressedBlock(std::ofstream &fout, Block *block);
 void writeCompressedBlockHeader(std::ofstream &fout, Block *block);
 void writeCompressedTransaction(std::ofstream &fout, Transaction *transaction);
@@ -48,12 +58,13 @@ void compress(const char *inputFile, const char *outputFile)
   // Preprocess the file
   // Build a list of (timestamp, index pairs) and sort them
   auto orderedBlocks = preprocessDatFile(fin);
+  writeBlockOrderData(fout, orderedBlocks);
 
   // While file is still open, read a block and compress it.
-  for (auto pr : orderedBlocks)
+  for (auto blockOrderData : orderedBlocks)
   //while (fin.good())
   {
-    fin.seekg(pr.second, std::ios_base::beg);
+    fin.seekg(blockOrderData.offset, std::ios_base::beg);
 
     Block *block = parseBlock(fin);
 
@@ -74,17 +85,18 @@ void compress(const char *inputFile, const char *outputFile)
   }
 }
 
-std::vector<std::pair<uint32_t, std::streampos>> preprocessDatFile(std::ifstream &fin)
+std::vector<BlockOrderData> preprocessDatFile(std::ifstream &fin)
 {
-  std::vector<std::pair<uint32_t, std::streampos>> ret;
+  std::vector<BlockOrderData> ret;
   std::streampos startPos = fin.tellg();
   fin.seekg(0, std::ios_base::end);
   std::streampos endPos = fin.tellg();
   fin.seekg(startPos, std::ios_base::beg);
 
+  int index = 0;
   while (fin.tellg() < endPos)
   {
-    std::pair<uint32_t, std::streampos> pr(0, fin.tellg());
+    BlockOrderData blockOrderData(0, index++, fin.tellg());
     uint32_t magicNumber, blockSize, timestamp;
 
     // Make sure we are pointing to the beginning of a block
@@ -103,10 +115,10 @@ std::vector<std::pair<uint32_t, std::streampos>> preprocessDatFile(std::ifstream
 
     // Skip 68 bytes, read time stamp, then skip to next block
     fin.seekg(68, std::ios_base::cur);
-    fin.read((char*)&pr.first, sizeof(uint32_t));
+    fin.read((char*)&blockOrderData.time, sizeof(uint32_t));
     fin.seekg(blockSize-72, std::ios_base::cur);
 
-    ret.push_back(pr);
+    ret.push_back(blockOrderData);
   }
 
   // Sort the list of pairs
@@ -120,6 +132,20 @@ std::vector<std::pair<uint32_t, std::streampos>> preprocessDatFile(std::ifstream
   fin.seekg(startPos, std::ios_base::beg);
 
   return ret;
+}
+
+void writeBlockOrderData(std::ofstream &fout, std::vector<BlockOrderData> &vec)
+{
+  // Write the number of blocks
+  uint32_t tmp = vec.size();
+  fout.write((char*)&tmp, sizeof(uint32_t));
+
+  // For each block, write the order in which they were originally encountered.
+  for (auto data : vec)
+  {
+    fout.write((char*)&data.index, sizeof(uint32_t));
+    //fout.write((char*)&data.offset, sizeof(uint32_t));
+  }
 }
 
 void writeCompressedBlock(std::ofstream &fout, Block *block)
