@@ -15,7 +15,7 @@ Output *parseOutput(std::ifstream &fin);
 Transaction *parseTransaction(std::ifstream &fin);
 
 Block *parseCompressedBlock(std::ifstream &fin);
-Input *parseCompressedInput(std::ifstream &fin);
+Input *parseCompressedInput(std::ifstream &fin, const uint8_t flags);
 Output *parseCompressedOutput(std::ifstream &fin);
 Transaction *parseCompressedTransaction(std::ifstream &fin);
 
@@ -237,8 +237,10 @@ Block *parseCompressedBlock(std::ifstream &fin)
   return block;
 }
 
-Input *parseCompressedInput(std::ifstream &fin)
+Input *parseCompressedInput(std::ifstream &fin, const uint8_t flags)
 {
+  static const uint8_t SEQUENCE_NUMBERS_DEFAULT = 0x8;
+
   // Make sure file stream is open
   if (!fin.good())
   {
@@ -257,7 +259,11 @@ Input *parseCompressedInput(std::ifstream &fin)
   input->scriptLength = readVarInt(fin);
   input->script = new uint8_t[input->scriptLength];
   fin.read((char*)input->script, input->scriptLength);
-  fin.read((char*)&input->sequenceNumber, sizeof(uint32_t));
+
+  if (flags & SEQUENCE_NUMBERS_DEFAULT)
+    input->sequenceNumber = 0xffffffff;
+  else
+    fin.read((char*)&input->sequenceNumber, sizeof(uint32_t));
 
   return input;
 }
@@ -282,6 +288,10 @@ Output *parseCompressedOutput(std::ifstream &fin)
 
 Transaction *parseCompressedTransaction(std::ifstream &fin)
 {
+  static const uint8_t VERSION_2 = 0x1;
+  static const uint8_t FLAG_PRESENT = 0x2;
+  static const uint8_t LOCK_TIME_DEFAULT = 0x4;
+
   // Make sure file stream is open
   if (!fin.good())
   {
@@ -295,23 +305,24 @@ Transaction *parseCompressedTransaction(std::ifstream &fin)
   fin.read((char*)&version, sizeof(uint8_t));
   transaction->version = version;
   */
-  uint8_t version = 0;
-  fin.read((char*)&version, sizeof(uint8_t));
-  transaction->version = version;
+  uint8_t compressedFlag = 0;
+  fin.read((char*)&compressedFlag, sizeof(uint8_t));
+  if (compressedFlag & VERSION_2)
+    transaction->version = 2;
+  else
+    transaction->version = 1;
 
   // Check if the flag is present.
-  transaction->flag = false;
-  if (fin.peek() == 0) // If the next byte is 0x00
-  {
+  if (compressedFlag & FLAG_PRESENT)
     transaction->flag = true;
-    fin.ignore(2); // Skip the next two bytes
-  }
+  else
+    transaction->flag = false;
 
   transaction->inputCount = readVarInt(fin);
   transaction->inputs.resize(transaction->inputCount);
   for (uint64_t i = 0; i < transaction->inputCount; i++)
   {
-    transaction->inputs[i] = parseCompressedInput(fin);
+    transaction->inputs[i] = parseCompressedInput(fin, compressedFlag);
     if (!transaction->inputs[i])
     {
       std::cout << "Failed to parse input. Aborting." << std::endl;
@@ -359,7 +370,11 @@ Transaction *parseCompressedTransaction(std::ifstream &fin)
       }
     }
   }
-  fin.read((char*)&transaction->lockTime, sizeof(uint32_t));
+
+  if (compressedFlag & LOCK_TIME_DEFAULT)
+    transaction->lockTime = 0x0;
+  else
+    fin.read((char*)&transaction->lockTime, sizeof(uint32_t));
 
   return transaction;
 }

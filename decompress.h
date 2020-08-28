@@ -135,6 +135,7 @@ void writeDecompressedBlock(std::ofstream &fout, Block *block)
   std::streampos sizePos, endPos;
   uint32_t decompressedBlockSize;
 
+
   // Write block header
   uint32_t magicNumber = Block::MAGIC_NUMBER;
   fout.write((char*)&magicNumber, sizeof(uint32_t));

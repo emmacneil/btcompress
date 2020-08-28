@@ -27,10 +27,10 @@ void writeBlockOrderData(std::ofstream &fout, std::vector<BlockOrderData> &vec);
 void writeCompressedBlock(std::ofstream &fout, Block *block);
 void writeCompressedBlockHeader(std::ofstream &fout, Block *block);
 void writeCompressedTransaction(std::ofstream &fout, Transaction *transaction);
-void writeCompressedTransactionFlag(std::ofstream &fout, bool flag);
-void writeCompressedTransactionInput(std::ofstream &fout, Input *input);
+uint8_t writeCompressedTransactionFlag(std::ofstream &fout, Transaction *transaction);
+void writeCompressedTransactionInput(std::ofstream &fout, Input *input, uint8_t flags);
 void writeCompressedTransactionInputCount(std::ofstream &fout, uint64_t inputCount);
-void writeCompressedTransactionLockTime(std::ofstream &fout, uint32_t lockTime);
+void writeCompressedTransactionLockTime(std::ofstream &fout, uint32_t lockTime, uint8_t flags);
 void writeCompressedTransactionOutput(std::ofstream &fout, Output *output);
 void writeCompressedTransactionOutputCount(std::ofstream &fout, uint64_t outputCount);
 void writeCompressedTransactionVersion(std::ofstream &fout, uint32_t version);
@@ -124,10 +124,6 @@ std::vector<BlockOrderData> preprocessDatFile(std::ifstream &fin)
   // Sort the list of pairs
   std::sort(ret.begin(), ret.end());
 
-  // Test output
-  //for (auto p : ret)
-  //  std::cout << p.first << "   " << p.second << std::endl;
-
   // Reset ifstream
   fin.seekg(startPos, std::ios_base::beg);
 
@@ -196,12 +192,14 @@ void writeCompressedBlockHeader(std::ofstream &fout, Block *block)
 
 void writeCompressedTransaction(std::ofstream &fout, Transaction *transaction)
 {
-  writeCompressedTransactionVersion(fout, transaction->version);
-  writeCompressedTransactionFlag(fout, transaction->flag);
+  // Write compressed version and flag info.
+  // This also includes information about the lock time and sequence numbers, so we do some calculations
+  //writeCompressedTransactionVersion(fout, transaction->version);
+  uint8_t flags = writeCompressedTransactionFlag(fout, transaction);
 
   writeCompressedTransactionInputCount(fout, transaction->inputCount);
   for (Input *input : transaction->inputs)
-    writeCompressedTransactionInput(fout, input);
+    writeCompressedTransactionInput(fout, input, flags);
 
   writeCompressedTransactionOutputCount(fout, transaction->outputCount);
   for (Output *output : transaction->outputs)
@@ -211,22 +209,41 @@ void writeCompressedTransaction(std::ofstream &fout, Transaction *transaction)
     for (Input *input : transaction->inputs)
       writeCompressedTransactionWitnessData(fout, input->witnesses);
 
-  writeCompressedTransactionLockTime(fout, transaction->lockTime);
+  writeCompressedTransactionLockTime(fout, transaction->lockTime, flags);
 }
 
-void writeCompressedTransactionFlag(std::ofstream &fout, bool flag)
+uint8_t writeCompressedTransactionFlag(std::ofstream &fout, Transaction *transaction)
 {
-  if (flag)
-  {
-    uint8_t tmp = 0x00;
-    fout.write((char*)&tmp, sizeof(uint8_t));
-    tmp = 0x01;
-    fout.write((char*)&tmp, sizeof(uint8_t));
-  }
+  // This writes not only the original flag, but also the version number and
+  // some informations about the lock time and sequence numbers.
+  static const uint8_t VERSION_2 = 0x1;
+  static const uint8_t FLAG_PRESENT = 0x2;
+  static const uint8_t LOCK_TIME_DEFAULT = 0x4;
+  static const uint8_t SEQUENCE_NUMBERS_DEFAULT = 0x8;
+  uint8_t flags = 0;
+
+  if (transaction->version == 2)
+    flags |= VERSION_2;
+  if (transaction->flag)
+    flags |= FLAG_PRESENT;
+  if (transaction->lockTime == 0)
+    flags |= LOCK_TIME_DEFAULT;
+
+  uint32_t sequenceNumbers = 0xffffffff;
+  for (Input *input : transaction->inputs)
+    sequenceNumbers &= input->sequenceNumber;
+  if (sequenceNumbers == 0xffffffff)
+    flags |= SEQUENCE_NUMBERS_DEFAULT;
+
+  fout.write((char*)&flags, sizeof(uint8_t));
+
+  return flags;
 }
 
-void writeCompressedTransactionInput(std::ofstream &fout, Input *input)
+void writeCompressedTransactionInput(std::ofstream &fout, Input *input, uint8_t flags)
 {
+  static const uint8_t SEQUENCE_NUMBERS_DEFAULT = 0x8;
+
   // Compress and write previous transaction hash
   for (int i = 0; i < 32; i++)
     fout.write((char*)&input->prevTransactionHash[31-i], 1);
@@ -240,7 +257,8 @@ void writeCompressedTransactionInput(std::ofstream &fout, Input *input)
     fout.write((char*)&input->script[i], 1);
 
   // Compress and write sequence number
-  fout.write((char*)&input->sequenceNumber, sizeof(uint32_t));
+  if (!(flags & SEQUENCE_NUMBERS_DEFAULT))
+    fout.write((char*)&input->sequenceNumber, sizeof(uint32_t));
 }
 
 void writeCompressedTransactionInputCount(std::ofstream &fout, uint64_t inputCount)
@@ -249,9 +267,11 @@ void writeCompressedTransactionInputCount(std::ofstream &fout, uint64_t inputCou
   writeVarInt(fout, inputCount);
 }
 
-void writeCompressedTransactionLockTime(std::ofstream &fout, uint32_t lockTime)
+void writeCompressedTransactionLockTime(std::ofstream &fout, uint32_t lockTime, uint8_t flags)
 {
-  fout.write((char*)&lockTime, sizeof(uint32_t));
+  static const uint8_t LOCK_TIME_DEFAULT = 0x4;
+  if (!(flags & LOCK_TIME_DEFAULT))
+    fout.write((char*)&lockTime, sizeof(uint32_t));
 }
 
 void writeCompressedTransactionOutput(std::ofstream &fout, Output *output)
