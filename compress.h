@@ -7,10 +7,15 @@
 #include "parse.h"
 
 #include <algorithm>
+#include <array>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <stdint.h>
 #include <utility>
+
+std::map<std::array<uint8_t, 32>, uint32_t> txHashes;
+uint32_t nextHashIndex = 0;
 
 struct BlockOrderData
 {
@@ -60,6 +65,8 @@ void compress(const char *inputFile, const char *outputFile)
   auto orderedBlocks = preprocessDatFile(fin);
   writeBlockOrderData(fout, orderedBlocks);
 
+  int nTransactions = 0;
+  int nHashes = 0;
   // While file is still open, read a block and compress it.
   for (auto blockOrderData : orderedBlocks)
   //while (fin.good())
@@ -177,7 +184,9 @@ void writeCompressedBlock(std::ofstream &fout, Block *block)
 
 void writeCompressedBlockHeader(std::ofstream &fout, Block *block)
 {
-  // The block header consists of the version number, previous block hash, merkle root, timestamp, 'bits', and nonce.
+  // The block header consists of the version number, previous block hash, merkle root, timestamp,
+  // 'bits', and nonce. There is no actual compression happening here. This is just writing the
+  // block header in the same format as in the original .dat file
   fout.write((char*)&block->version, sizeof(uint32_t));
 
   for (int i = 0; i < 32; i++)
@@ -214,8 +223,8 @@ void writeCompressedTransaction(std::ofstream &fout, Transaction *transaction)
 
 uint8_t writeCompressedTransactionFlag(std::ofstream &fout, Transaction *transaction)
 {
-  // This writes not only the original flag, but also the version number and
-  // some informations about the lock time and sequence numbers.
+  // This writes not only the original flag, but also the version number and some informations
+  // about the lock time and sequence numbers. The compressed flag's value is returned.
   static const uint8_t VERSION_2 = 0x1;
   static const uint8_t FLAG_PRESENT = 0x2;
   static const uint8_t LOCK_TIME_DEFAULT = 0x4;
@@ -249,7 +258,9 @@ void writeCompressedTransactionInput(std::ofstream &fout, Input *input, uint8_t 
     fout.write((char*)&input->prevTransactionHash[31-i], 1);
 
   // Compress and write previous transaction index
-  fout.write((char*)&input->prevTransactionIndex, sizeof(uint32_t));
+  // This was originally a 32-bit integer. Now we use a varint
+  writeVarInt(fout, input->prevTransactionIndex);
+  //fout.write((char*)&input->prevTransactionIndex, sizeof(uint32_t));
 
   // Compress and write script length + script
   writeVarInt(fout, input->scriptLength);
@@ -257,8 +268,13 @@ void writeCompressedTransactionInput(std::ofstream &fout, Input *input, uint8_t 
     fout.write((char*)&input->script[i], 1);
 
   // Compress and write sequence number
+  // Because the difference between the sequence numbers and 0xffffffff is usually small,
+  // we can store the difference instead.
   if (!(flags & SEQUENCE_NUMBERS_DEFAULT))
-    fout.write((char*)&input->sequenceNumber, sizeof(uint32_t));
+  {
+    uint64_t tmp = input->sequenceNumber ^ 0xffffffff;
+    writeVarInt(fout, tmp);
+  }
 }
 
 void writeCompressedTransactionInputCount(std::ofstream &fout, uint64_t inputCount)

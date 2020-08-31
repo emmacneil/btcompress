@@ -234,6 +234,9 @@ Block *parseCompressedBlock(std::ifstream &fin)
     }
   }
 
+  printBlockHeader(block);
+  std::cout << std::endl;
+
   return block;
 }
 
@@ -254,16 +257,25 @@ Input *parseCompressedInput(std::ifstream &fin, const uint8_t flags)
     std::cout << "Could not allocate memory for input. Aborting." << std::endl;
     return 0;
   }
+
   readHash(fin, (char*)&input->prevTransactionHash, 32);
-  fin.read((char*)&input->prevTransactionIndex, sizeof(uint32_t));
+  input->prevTransactionIndex = readVarInt(fin);
+  //fin.read((char*)&input->prevTransactionIndex, sizeof(uint32_t));
   input->scriptLength = readVarInt(fin);
+  if (input->scriptLength > 1000)
+    exit(1);
   input->script = new uint8_t[input->scriptLength];
   fin.read((char*)input->script, input->scriptLength);
 
   if (flags & SEQUENCE_NUMBERS_DEFAULT)
     input->sequenceNumber = 0xffffffff;
   else
-    fin.read((char*)&input->sequenceNumber, sizeof(uint32_t));
+  {
+    uint64_t tmp;
+    tmp = readVarInt(fin);
+    input->sequenceNumber = tmp ^ 0xffffffff;
+    //fin.read((char*)&input->sequenceNumber, sizeof(uint32_t));
+  }
 
   return input;
 }
@@ -280,6 +292,8 @@ Output *parseCompressedOutput(std::ifstream &fin)
   //fin.read((char*)&output->value, sizeof(uint64_t));
   output->value = readVarInt(fin);
   output->scriptLength = readVarInt(fin);
+  if (output->scriptLength > 1000)
+    exit(1);
   output->script = new uint8_t[output->scriptLength];
   fin.read((char*)output->script, output->scriptLength);
 
@@ -307,17 +321,16 @@ Transaction *parseCompressedTransaction(std::ifstream &fin)
   */
   uint8_t compressedFlag = 0;
   fin.read((char*)&compressedFlag, sizeof(uint8_t));
+
   if (compressedFlag & VERSION_2)
     transaction->version = 2;
   else
     transaction->version = 1;
-
   // Check if the flag is present.
   if (compressedFlag & FLAG_PRESENT)
     transaction->flag = true;
   else
     transaction->flag = false;
-
   transaction->inputCount = readVarInt(fin);
   transaction->inputs.resize(transaction->inputCount);
   for (uint64_t i = 0; i < transaction->inputCount; i++)
@@ -356,7 +369,6 @@ Transaction *parseCompressedTransaction(std::ifstream &fin)
         Witness *w = input->witnesses[j];
         if (!input->witnesses[j])
         {
-          std::cout << "Could not allocate memory for witness data. Aborting" << std::endl;
           return 0;
         }
         w->size = readVarInt(fin);
@@ -375,7 +387,6 @@ Transaction *parseCompressedTransaction(std::ifstream &fin)
     transaction->lockTime = 0x0;
   else
     fin.read((char*)&transaction->lockTime, sizeof(uint32_t));
-
   return transaction;
 }
 
