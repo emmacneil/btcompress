@@ -5,9 +5,12 @@
 
 #include "block.h"
 
+#include <array>
 #include <fstream>
 #include <iostream>
 #include <stdint.h>
+
+extern std::vector<std::array<uint8_t, 32>> txHashTable;
 
 Block *parseBlock(std::ifstream &fin);
 Input *parseInput(std::ifstream &fin);
@@ -18,6 +21,7 @@ Block *parseCompressedBlock(std::ifstream &fin);
 Input *parseCompressedInput(std::ifstream &fin, const uint8_t flags);
 Output *parseCompressedOutput(std::ifstream &fin);
 Transaction *parseCompressedTransaction(std::ifstream &fin);
+void parseCompressedTransactionHash(std::ifstream &fin, std::array<uint8_t, 32> &hash);
 
 void readHash(std::ifstream &fin, char *buffer, int nBytes);
 uint64_t readVarInt(std::ifstream &fin);
@@ -258,7 +262,7 @@ Input *parseCompressedInput(std::ifstream &fin, const uint8_t flags)
     return 0;
   }
 
-  readHash(fin, (char*)&input->prevTransactionHash, 32);
+  parseCompressedTransactionHash(fin, input->prevTransactionHash);
   input->prevTransactionIndex = readVarInt(fin);
   //fin.read((char*)&input->prevTransactionIndex, sizeof(uint32_t));
   input->scriptLength = readVarInt(fin);
@@ -388,6 +392,18 @@ Transaction *parseCompressedTransaction(std::ifstream &fin)
   else
     fin.read((char*)&transaction->lockTime, sizeof(uint32_t));
   return transaction;
+}
+
+void parseCompressedTransactionHash(std::ifstream &fin, std::array<uint8_t, 32> &hash)
+{
+  uint32_t txHashIndex;
+  fin.read((char*)&txHashIndex, sizeof(uint32_t));
+  hash = txHashTable[txHashIndex];
+  // fin.read(buffer, 32);
+  // char *start = (char*)hash.data();
+  // char *ptr = start + 32;
+  // while (ptr > start)
+  //   fin.read(--ptr, 1);
 }
 
 void readHash(std::ifstream &fin, char *buffer, int nBytes)

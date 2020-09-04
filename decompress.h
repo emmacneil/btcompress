@@ -13,11 +13,14 @@
 #include <stdint.h>
 #include <utility>
 
+std::vector<std::array<uint8_t, 32>> txHashTable;
+
 struct CompressedBlockOrderData
 {
   bool operator< (const CompressedBlockOrderData &other) const { return index < other.index; }
-  uint32_t compressedIndex, index;
-  std::streampos offset;
+  uint32_t compressedIndex; // The index of the block in the compressed file
+  uint32_t index; // The index of the block in the original .dat file
+  std::streampos offset; // The offset in bytes of the block from the beginning of the compressed file.
 };
 
 void decompress(const char *inputFile, const char *outputFile);
@@ -81,31 +84,20 @@ void decompress(const char *inputFile, const char *outputFile)
 
 std::vector<CompressedBlockOrderData> preprocessCompressedFile(std::ifstream &fin)
 {
-  uint32_t size;
-  fin.read((char*)&size, sizeof(uint32_t));
-  std::vector<CompressedBlockOrderData> ret(size);
+  uint32_t nBlocks;
+  fin.read((char*)&nBlocks, sizeof(uint32_t));
+  std::vector<CompressedBlockOrderData> ret(nBlocks);
 
-  uint32_t compressedIndex = 0;
   for (auto &t : ret)
   {
     uint32_t index;
-    std::streampos offset;
-
     fin.read((char*)&index, sizeof(uint32_t));
-
     t.index = index;
   }
 
-  std::streampos firstBlockPos = fin.tellg();
-  fin.seekg(0, std::ios_base::end);
-  std::streampos endPos = fin.tellg();
-  fin.seekg(firstBlockPos, std::ios_base::beg);
-
-  uint32_t i = 0;
-  while (fin.tellg() < endPos)
+  for (int i = 0; i < nBlocks; i++)
   {
     uint32_t magicNumber, blockSize;
-    ret[i++].offset = fin.tellg();
 
     // Make sure we are pointing to the beginning of a block
     fin.read((char*)&magicNumber, sizeof(uint32_t));
@@ -118,15 +110,29 @@ std::vector<CompressedBlockOrderData> preprocessCompressedFile(std::ifstream &fi
       return {};
     }
 
-    // Read in the size of the block
-    fin.read((char*)&blockSize, sizeof(uint32_t));
+    ret[i].offset = fin.tellg() - (std::streampos)4;
+    ret[i].compressedIndex = i;
 
-    // Skip that many bytes to next block
+    // Read in the size of the block. Skip that many bytes to the next block
+    fin.read((char*)&blockSize, sizeof(uint32_t));
     fin.seekg(blockSize, std::ios_base::cur);
   }
 
   std::sort(ret.begin(), ret.end());
 
+  // Read in txHashIndex data
+  uint32_t nTxHashes;
+  fin.read((char*)&nTxHashes, sizeof(uint32_t));
+  txHashTable.resize(nTxHashes);
+  for (auto &h : txHashTable)
+  {
+    for (int i = 31; i >= 0; i--)
+      fin.read((char*)(h.data() + i), sizeof(uint8_t));
+  }
+
+  for (int i = 0; i < 32; i++)
+    std::cout << std::hex << std::setw(2) << std::setfill('0') << (int)txHashTable[2][i];
+  std::cout << std::dec << std::endl;
   return ret;
 }
 

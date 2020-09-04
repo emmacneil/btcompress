@@ -15,7 +15,7 @@
 #include <utility>
 
 std::map<std::array<uint8_t, 32>, uint32_t> txHashes;
-uint32_t nextHashIndex = 0;
+uint32_t nextTxHashIndex = 0;
 
 struct BlockOrderData
 {
@@ -33,6 +33,7 @@ void writeCompressedBlock(std::ofstream &fout, Block *block);
 void writeCompressedBlockHeader(std::ofstream &fout, Block *block);
 void writeCompressedTransaction(std::ofstream &fout, Transaction *transaction);
 uint8_t writeCompressedTransactionFlag(std::ofstream &fout, Transaction *transaction);
+void writeCompressedTransactionHash(std::ofstream &fout, std::array<uint8_t, 32> &hash);
 void writeCompressedTransactionInput(std::ofstream &fout, Input *input, uint8_t flags);
 void writeCompressedTransactionInputCount(std::ofstream &fout, uint64_t inputCount);
 void writeCompressedTransactionLockTime(std::ofstream &fout, uint32_t lockTime, uint8_t flags);
@@ -40,6 +41,7 @@ void writeCompressedTransactionOutput(std::ofstream &fout, Output *output);
 void writeCompressedTransactionOutputCount(std::ofstream &fout, uint64_t outputCount);
 void writeCompressedTransactionVersion(std::ofstream &fout, uint32_t version);
 void writeCompressedTransactionWitnessData(std::ofstream &fout, std::vector<Witness*> &witnesses);
+void writeTransactionHashTable(std::ofstream &fout);
 void writeVarInt(std::ofstream &fout, uint64_t val);
 
 void compress(const char *inputFile, const char *outputFile)
@@ -90,6 +92,8 @@ void compress(const char *inputFile, const char *outputFile)
     // When we're done with the block, free up memory.
     delete block;
   }
+
+  writeTransactionHashTable(fout);
 }
 
 std::vector<BlockOrderData> preprocessDatFile(std::ifstream &fin)
@@ -249,13 +253,30 @@ uint8_t writeCompressedTransactionFlag(std::ofstream &fout, Transaction *transac
   return flags;
 }
 
+void writeCompressedTransactionHash(std::ofstream &fout, std::array<uint8_t, 32> &hash)
+{
+  // If hash is in the table of transactions hashes, fetch its index.
+  // Otherwise, add it to the table and assign it an index.
+  uint32_t index;
+  if (txHashes.count(hash))
+    index = txHashes[hash];
+  else
+    index = txHashes[hash] = nextTxHashIndex++;
+
+  //char *start = (char*)hash.data();
+  //char *ptr = start + 32;
+  //while (ptr > start)
+  //  fout.write(--ptr, sizeof(uint8_t));
+
+  fout.write((char*)&index, sizeof(uint32_t));
+}
+
 void writeCompressedTransactionInput(std::ofstream &fout, Input *input, uint8_t flags)
 {
   static const uint8_t SEQUENCE_NUMBERS_DEFAULT = 0x8;
 
   // Compress and write previous transaction hash
-  for (int i = 0; i < 32; i++)
-    fout.write((char*)&input->prevTransactionHash[31-i], 1);
+  writeCompressedTransactionHash(fout, input->prevTransactionHash);
 
   // Compress and write previous transaction index
   // This was originally a 32-bit integer. Now we use a varint
@@ -327,6 +348,24 @@ void writeCompressedTransactionWitnessData(std::ofstream &fout, std::vector<Witn
     for (uint8_t byte : w->data)
       fout.write((char*)&byte, 1);
   }
+}
+
+void writeTransactionHashTable(std::ofstream &fout)
+{
+  // Put hashes into a vector of index-hash pairs
+  std::vector<std::pair<uint32_t, std::array<uint8_t, 32>>> vec;
+  for (auto pr : txHashes)
+    vec.push_back(std::make_pair(pr.second, pr.first));
+  std::sort(vec.begin(), vec.end());
+
+  // Write number of hashes
+  uint32_t nTxHashes = vec.size();
+  fout.write((char*)&nTxHashes, sizeof(uint32_t));
+
+  // Write hashes
+  for (auto pr : vec)
+    for (int i = 31; i >= 0; i--)
+      fout.write((char*)(pr.second.data() + i), sizeof(uint8_t));
 }
 
 void writeVarInt(std::ofstream &fout, uint64_t val)

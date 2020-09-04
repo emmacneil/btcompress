@@ -8,13 +8,14 @@
 #include <iomanip>
 #include <iostream>
 
+#include <array>
 #include <stdint.h>
 #include <vector>
 
 struct Input
 {
   ~Input();
-  uint8_t prevTransactionHash[32];
+  std::array<uint8_t, 32> prevTransactionHash;
   uint32_t prevTransactionIndex;
   uint64_t scriptLength; // varInt
   uint8_t *script;
